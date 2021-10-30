@@ -1,0 +1,90 @@
+#!/bin/bash
+
+function monitor_xevents {
+    xev -root -event randr | stdbuf --output=L gawk --sandbox \
+        --source 'BEGIN {
+            pat=@/RR_(Disconnected|Connected)/
+        }
+        match ($0, pat, s) {
+            print s[1]
+        }'
+}
+
+function log {
+    printf "$0\n"
+}
+
+function dbg {
+    if [ "$DBG" == "1" ]; then
+        log "[DBG] $0"
+    fi
+}
+
+function in_array {
+    val=$1
+    shift
+    arr=("$@")
+    found="0"
+    for v in "${arr[@]}"; do
+        if [ "$val" == "$v" ]; then
+            found="1"
+        fi
+    done
+    echo "$found"
+}
+
+function check_monitors {
+    active_monitors=()
+    connected_monitors=()
+    disconnected_monitors=()
+    dev=""
+
+    # read the connected/disconnected state of all relevant devices
+    for monitor in $(xrandr --query | awk '/connected/ {print $1, $2}'); do
+        if [ "$dev" == "" ];then
+            dev="$monitor"
+        else
+            state="$monitor"
+            if [ "$state" == "disconnected" ]; then
+                disconnected_monitors+=("$dev")
+            else
+                connected_monitors+=("$dev")
+            fi
+            dev=""
+        fi
+    done
+
+    # read the list of active devices
+    for monitor in $(xrandr --listactivemonitors | awk '/^\s+[0-9]+:/ {print $4}'); do
+        dbg "$monitor is active"
+        active_monitors+=("$monitor")
+    done
+
+    # turn off active devices that are disconnected
+    for monitor in "${disconnected_monitors[@]}"; do
+        dbg "$monitor is not connected"
+        is_active=$(in_array "$monitor" "${active_monitors[@]}")
+        if [ "$is_active" == "1" ]; then
+            log "$monitor disconnected"
+            xrandr --output "$monitor" --off
+        fi
+    done
+
+    # turn on inactive devices that are connected
+    for monitor in "${connected_monitors[@]}"; do
+        dbg "$monitor is connected"
+        is_active=$(in_array "$monitor" "${active_monitors[@]}")
+        if [ "$is_active" == "0" ]; then
+            log "$monitor connected"
+            # todo: dont hardcode that all monitors appear above eDP-1
+            xrandr --output "$monitor" --auto --above eDP-1
+        fi
+    done
+}
+
+check_monitors
+
+while read change; do
+    dbg "$change occured"
+    check_monitors
+done < <(monitor_xevents)
