@@ -16,6 +16,7 @@ will always be put above the internal monitor.
 ## Requirements
 
 - `bash`
+- `stdbuf`
 - `xev`
 - `xrandr`
 - `awk/gawk`
